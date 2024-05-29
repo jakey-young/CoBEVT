@@ -135,19 +135,19 @@ def cal_iou_training(batch_dict, output_dict):
 
         gt_static = \
             batch_dict['ego']['gt_static'].detach().cpu().data.numpy()[i, 0]
-        gt_static = np.array(gt_static, dtype=np.int)
+        gt_static = np.array(gt_static, dtype=int)
 
         gt_dynamic = \
             batch_dict['ego']['gt_dynamic'].detach().cpu().data.numpy()[i, 0]
-        gt_dynamic = np.array(gt_dynamic, dtype=np.int)
+        gt_dynamic = np.array(gt_dynamic, dtype=int)
 
         pred_static = \
             output_dict['static_map'].detach().cpu().data.numpy()[i]
-        pred_static = np.array(pred_static, dtype=np.int)
+        pred_static = np.array(pred_static, dtype=int)
 
         pred_dynamic = \
             output_dict['dynamic_map'].detach().cpu().data.numpy()[i]
-        pred_dynamic = np.array(pred_dynamic, dtype=np.int)
+        pred_dynamic = np.array(pred_dynamic, dtype=int)
 
         iou_dynamic = mean_IU(pred_dynamic, gt_dynamic)
         iou_static = mean_IU(pred_static, gt_static)

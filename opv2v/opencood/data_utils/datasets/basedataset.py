@@ -238,7 +238,7 @@ class BaseDataset(Dataset):
 
         # retrieve the corresponding timestamp key
         timestamp_key = self.return_timestamp_key(scenario_database,
-                                                  timestamp_index)
+                                                  timestamp_index) # Given the timestamp index, return the correct timestamp key
         # calculate distance to ego for each cav for time delay estimation
         ego_cav_content = \
             self.calc_dist_to_ego(scenario_database, timestamp_key)
@@ -278,7 +278,7 @@ class BaseDataset(Dataset):
             #     pcd_utils.pcd_to_np(cav_content[timestamp_key_delay]['lidar'])
             data[cav_id]['camera_np'] = \
                 load_rgb_from_files(
-                    cav_content[timestamp_key_delay]['cameras'])
+                    cav_content[timestamp_key_delay]['cameras'])  # 该时间戳下车辆(cav_id)四个摄像头的图像数据
             for file_extension in self.add_data_extension:
                 # todo: currently not considering delay!
                 # output should be only yaml or image
@@ -306,13 +306,13 @@ class BaseDataset(Dataset):
         """
         # we loop the accumulated length list to see get the scenario index
         scenario_index = 0
-        for i, ele in enumerate(self.len_record):
+        for i, ele in enumerate(self.len_record): # 用于确定给定idx所属场景；len_record应该表示总共多少个场景（可索引数量，43个场景，每增加一个索引叠加一次；比如第一个场景5个时间戳数据，第二改革场景6个时间戳数据，那么len_record列表就是[5,11]）
             if idx < ele:
                 scenario_index = i
                 break
-        scenario_database = self.scenario_database[scenario_index]
+        scenario_database = self.scenario_database[scenario_index] # 得到该场景下互连的车辆代号集合
 
-        # check the timestamp index
+        # check the timestamp index 本次索引对象对应该场景下第几个时间戳
         timestamp_index = idx if scenario_index == 0 else \
             idx - self.len_record[scenario_index - 1]
 

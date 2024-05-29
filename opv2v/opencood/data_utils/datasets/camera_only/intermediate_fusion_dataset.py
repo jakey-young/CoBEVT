@@ -20,7 +20,7 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
         self.visible = params['train_params']['visible']
 
     def __getitem__(self, idx):
-        data_sample = self.get_sample_random(idx)
+        data_sample = self.get_sample_random(idx) # 该场景下互联的车辆[ego[time_delay,params(相机坐标)，camera_np(四个相机的图像信息)，bev_dynamic.png,bev_static.png,bev_lane.png,bev_visibility.png,bev_visibility_corp.png,object_id(视野范围目标id),object_bbx_cav,object_bbx_mask],cav1,cav2,...]
 
         processed_data_dict = OrderedDict()
         processed_data_dict['ego'] = OrderedDict()
@@ -105,7 +105,7 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
             'gt_dynamic': gt_dynamic,
             'gt_static': gt_static})
 
-        return processed_data_dict
+        return processed_data_dict # ['ego'[transformation_matrix;pairwise_t_matrix;camera_data(connected_car_num,4,512,512,3);camera_intrinsic;canera_extrinsic;gt_dynamic(1,256,256);gt_static(1,256,256)]]
 
     @staticmethod
     def get_pairwise_transformation(base_data_dict, max_cav):
@@ -205,7 +205,7 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
         # preprocess the input rgb image and extrinsic params first
         for camera_id, camera_data in selected_cav_base['camera_np'].items():
             all_camera_origin.append(camera_data)
-            camera_data = self.pre_processor.preprocess(camera_data)
+            camera_data = self.pre_processor.preprocess(camera_data) # resize_image; normalize; standalize
             camera_intrinsic = \
                 selected_cav_base['camera_params'][camera_id][
                     'camera_intrinsic']
@@ -218,8 +218,8 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
             all_camera_extrinsic.append(cam2ego)
 
         camera_dict = {
-            'origin_data': np.stack(all_camera_origin),
-            'data': np.stack(all_camera_data),
+            'origin_data': np.stack(all_camera_origin), # (4,600,800,3)
+            'data': np.stack(all_camera_data), # (4,512,512,3)
             'intrinsic': np.stack(all_camera_intrinsic),
             'extrinsic': np.stack(all_camera_extrinsic)
         }

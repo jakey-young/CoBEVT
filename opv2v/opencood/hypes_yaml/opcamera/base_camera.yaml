@@ -1,13 +1,14 @@
 name: base_camera # only used for demonstration data api
-root_dir: '/data/opv2v/test'
-validate_dir: '/data/opv2v/test'
+root_dir: '/home/why/Dataset/opv2v/train'
+validate_dir: '/home/why/Dataset/opv2v/validate'
 
 
 train_params:
-  batch_size: &batch_size 4
+  batch_size: &batch_size 2
   epoches: 22
   eval_freq: 1
   save_freq: 1
+  visible: true
 
 fusion:
   core_method: 'CamLateFusionDataset' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported

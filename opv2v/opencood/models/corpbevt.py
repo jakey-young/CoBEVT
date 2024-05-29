@@ -102,11 +102,11 @@ class CorpBEVT(nn.Module):
                                    config['output_class'])
 
     def forward(self, batch_dict):
-        x = batch_dict['inputs']
+        x = batch_dict['inputs'] # (b,1,4,512,512,3)(connected_car,batch,cam_num,H,W,C)
         b, l, m, _, _, _ = x.shape
 
         # shape: (B, max_cav, 4, 4)
-        transformation_matrix = batch_dict['transformation_matrix']
+        transformation_matrix = batch_dict['transformation_matrix'] # (1,5,4,4)
         record_len = batch_dict['record_len']
 
         x = self.encoder(x)
@@ -123,7 +123,7 @@ class CorpBEVT(nn.Module):
         # Reformat to (B, max_cav, C, H, W)
         x, mask = regroup(x, record_len, self.max_cav)
         # perform feature spatial transformation,  B, max_cav, H, W, C
-        x = self.sttf(x, transformation_matrix)
+        x = self.sttf(x, transformation_matrix) # 这个模块利用了坐标转换矩阵,实现将BEV特征从世界坐标系转換到自身坐标系,应该是为了后续在自身坐标系下分析处理BEV特征
         com_mask = mask.unsqueeze(1).unsqueeze(2).unsqueeze(
             3) if not self.use_roi_mask \
             else get_roi_and_cav_mask(x.shape,

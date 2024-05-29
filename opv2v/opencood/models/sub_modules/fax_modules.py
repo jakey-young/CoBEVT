@@ -71,7 +71,7 @@ class BEVEmbedding(nn.Module):
             w = bev_width // scale
 
             # bev coordinates
-            grid = generate_grid(h, w).squeeze(0)
+            grid = generate_grid(h, w).squeeze(0) # 这些属性`grid0`,`grid1`等都是形状为`(3, H, W)`的张量,前两个通道包含了BEV坐标系下各个位置的(x,y)坐标,第三个通道是常数1(用于构造齐次坐标)。
             grid[0] = bev_width * grid[0]
             grid[1] = bev_height * grid[1]
 
@@ -222,7 +222,7 @@ class CrossWinAttention(nn.Module):
         k = rearrange(k, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head)
         v = rearrange(v, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head)
 
-        # Dot product attention along cameras
+        # Dot product attention along cameras计算相似度分数
         dot = self.scale * torch.einsum('b l Q d, b l K d -> b l Q K', q, k)  # b (X Y) (n W1 W2) (n w1 w2)
         # dot = rearrange(dot, 'b l n Q K -> b l Q (n K)')  # b (X Y) (W1 W2) (n w1 w2)
 
@@ -326,8 +326,8 @@ class CrossViewSwapAttention(nn.Module):
         x: torch.FloatTensor,
         bev: BEVEmbedding,
         feature: torch.FloatTensor,
-        I_inv: torch.FloatTensor,
-        E_inv: torch.FloatTensor,
+        I_inv: torch.FloatTensor, # 内参矩阵
+        E_inv: torch.FloatTensor, # 外参矩阵
     ):
         """
         x: (b, c, H, W)
@@ -343,22 +343,22 @@ class CrossViewSwapAttention(nn.Module):
         pixel = self.image_plane                                                # b n 3 h w
         _, _, _, h, w = pixel.shape
 
-        c = E_inv[..., -1:]                                                     # b n 4 1
-        c_flat = rearrange(c, 'b n ... -> (b n) ...')[..., None]                # (b n) 4 1 1
-        c_embed = self.cam_embed(c_flat)                                        # (b n) d 1 1
+        c = E_inv[..., -1:]   # b n 4 1  外参矩阵的最后一列，表示世界坐标系到相机坐标系的平移
+        c_flat = rearrange(c, 'b n ... -> (b n) ...')[..., None]                # (b n) 4 1 1 把前两个维度相乘变成一个维度，后面加了一个维度，以适应卷积: self.cam_embed本质是一个1*1卷积，输入张量形式应该是（batch,channels,height,widh）
+        c_embed = self.cam_embed(c_flat)                                        # (b n) d 1 1 # 表示相机在世界坐标系下的位置信息。这个位置编码将在后面被用作注意力机制中的查询(query)或其他目的；,
 
         pixel_flat = rearrange(pixel, '... h w -> ... (h w)')                   # 1 1 3 (h w)
-        cam = I_inv @ pixel_flat                                                # b n 3 (h w)
+        cam = I_inv @ pixel_flat                                                # b n 3 (h w) 将图像平面坐标 pixel_flat 转换到相机坐标系,为后续与外参数矩阵相乘做准备(X, Y, Z, 1)^T = I_inv * (x, y, 1)^T
         cam = F.pad(cam, (0, 0, 0, 1, 0, 0, 0, 0), value=1)                     # b n 4 (h w)
-        d = E_inv @ cam                                                         # b n 4 (h w)
+        d = E_inv @ cam                                                         # b n 4 (h w) # 外参数矩阵 E_inv 的形状为 (b, n, 4, 4)。而相机坐标 cam 的最后一个维度是 3,无法直接与 E_inv 相乘。因此,需要在 cam 的最后一个维度上填充 1,使其形状变为 (b, n, 4, h*w)。这样,就可以与外参数矩阵 E_inv 进行矩阵乘法操作
         d_flat = rearrange(d, 'b n d (h w) -> (b n) d h w', h=h, w=w)           # (b n) 4 h w
-        d_embed = self.img_embed(d_flat)                                        # (b n) d h w
+        d_embed = self.img_embed(d_flat)                                        # (b n) d h w 包含了图像每个像素点在世界坐标系下的3D位置信息,以特征向量的形式编码。这个特征嵌入将在后续被用作注意力机制的键(key)或值(value)
 
         img_embed = d_embed - c_embed                                           # (b n) d h w
         img_embed = img_embed / (img_embed.norm(dim=1, keepdim=True) + 1e-7)    # (b n) d h w
 
         # todo: some hard-code for now.
-        if index == 0:
+        if index == 0: # 选择不同`index`对应的`world`坐标,是为了在不同的解码器块中融合不同分辨率的BEV特征,使注意力机制能够获取到多尺度的上下文信息。
             world = bev.grid0[:2]
         elif index == 1:
             world = bev.grid1[:2]
@@ -369,15 +369,15 @@ class CrossViewSwapAttention(nn.Module):
 
         if self.bev_embed_flag:
             # 2 H W
-            w_embed = self.bev_embed(world[None])                                   # 1 d H W
-            bev_embed = w_embed - c_embed                                           # (b n) d H W
+            w_embed = self.bev_embed(world[None])      # 1 d H W 将鸟瞰视图坐标系下的每个(x, y)位置坐标,通过一个2D卷积层编码为一个dim维的特征向量。得到的w_embed张量包含了整个BEV图的特征表示
+            bev_embed = w_embed - c_embed              # (b n) d H W 见CVT论文q=c-t ；img_embed建立了图像在三维世界坐标和相机坐标的关系；bev_embed建立了BEV世界坐标和相机坐标的关系，相当于以相机位置作为媒介建立BEV和图像的投影关系
             bev_embed = bev_embed / (bev_embed.norm(dim=1, keepdim=True) + 1e-7)    # (b n) d H W
             query_pos = rearrange(bev_embed, '(b n) ... -> b n ...', b=b, n=n)      # b n d H W
 
         feature_flat = rearrange(feature, 'b n ... -> (b n) ...')               # (b n) d h w
 
         if self.feature_proj is not None:
-            key_flat = img_embed + self.feature_proj(feature_flat)              # (b n) d h w
+            key_flat = img_embed + self.feature_proj(feature_flat)              # (b n) d h w  见CVT论文key=[camera_pos_emd,features]
         else:
             key_flat = img_embed                                                # (b n) d h w
 
@@ -388,14 +388,14 @@ class CrossViewSwapAttention(nn.Module):
             query = query_pos + x[:, None]
         else:
             query = x[:, None]  # b n d H W
-        key = rearrange(key_flat, '(b n) ... -> b n ...', b=b, n=n)             # b n d h w
-        val = rearrange(val_flat, '(b n) ... -> b n ...', b=b, n=n)             # b n d h w
+        key = rearrange(key_flat, '(b n) ... -> b n ...', b=b, n=n)  # 构造自feature，即image特征，作为K           # b n d h w
+        val = rearrange(val_flat, '(b n) ... -> b n ...', b=b, n=n)  # 构造自feature，融合摄像头数据后的特征作为value           # b n d h w
 
-        # pad divisible
+        # pad divisible 通过这两种 BEV 特征的融合,注意力机制可以同时获取全局场景信息和局部细节,帮助更好地理解和融合不同视角的特征。We set the window/grid size of I0 as (8, 8) and that of the Q0 as (16,16)
         key = self.pad_divisble(key, self.feat_win_size[0], self.feat_win_size[1])
         val = self.pad_divisble(val, self.feat_win_size[0], self.feat_win_size[1])
 
-        # local-to-local cross-attention
+        # local-to-local cross-attention We set the window/grid size of Q0 as (16, 16)
         query = rearrange(query, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
                           w1=self.q_win_size[0], w2=self.q_win_size[1])  # window partition
         key = rearrange(key, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
@@ -440,6 +440,197 @@ class CrossViewSwapAttention(nn.Module):
 
         return query
 
+class HFAX(nn.Module):
+    def __init__(
+        self,
+        feat_height: int,
+        feat_width: int,
+        feat_dim: int,
+        dim: int,
+        index: int,
+        image_height: int,
+        image_width: int,
+        qkv_bias: bool,
+        q_win_size: list,
+        feat_win_size: list,
+        heads: list,
+        dim_head: list,
+        bev_embedding_flag: list,
+        rel_pos_emb: bool = False,  # to-do
+        no_image_features: bool = False,
+        skip: bool = True,
+        norm=nn.LayerNorm,
+    ):
+        super().__init__()
+
+        # 1 1 3 h w
+        image_plane = generate_grid(feat_height, feat_width)[None]
+        image_plane[:, :, 0] *= image_width
+        image_plane[:, :, 1] *= image_height
+
+        self.register_buffer('image_plane', image_plane, persistent=False)
+
+        self.feature_linear = nn.Sequential(
+            nn.BatchNorm2d(feat_dim),
+            nn.ReLU(),
+            nn.Conv2d(feat_dim, dim, 1, bias=False))
+
+        if no_image_features:
+            self.feature_proj = None
+        else:
+            self.feature_proj = nn.Sequential(
+                nn.BatchNorm2d(feat_dim),
+                nn.ReLU(),
+                nn.Conv2d(feat_dim, dim, 1, bias=False))
+
+        self.bev_embed_flag = bev_embedding_flag[index]
+        if self.bev_embed_flag:
+            self.bev_embed = nn.Conv2d(2, dim, 1)
+        self.img_embed = nn.Conv2d(4, dim, 1, bias=False)
+        self.cam_embed = nn.Conv2d(4, dim, 1, bias=False)
+
+        self.q_win_size = q_win_size[index]
+        self.feat_win_size = feat_win_size[index]
+        self.rel_pos_emb = rel_pos_emb
+
+        self.cross_win_attend_1 = CrossWinAttention(dim, heads[index], dim_head[index], qkv_bias)
+        self.cross_win_attend_2 = CrossWinAttention(dim, heads[index], dim_head[index], qkv_bias)
+        self.skip = skip
+        # self.proj = nn.Linear(2 * dim, dim)
+
+        self.prenorm_1 = norm(dim)
+        self.prenorm_2 = norm(dim)
+        self.mlp_1 = nn.Sequential(nn.Linear(dim, 2 * dim), nn.GELU(), nn.Linear(2 * dim, dim))
+        self.mlp_2 = nn.Sequential(nn.Linear(dim, 2 * dim), nn.GELU(), nn.Linear(2 * dim, dim))
+        self.postnorm = norm(dim)
+
+    def pad_divisble(self, x, win_h, win_w):
+        """Pad the x to be divible by window size."""
+        _, _, _, h, w = x.shape
+        h_pad, w_pad = ((h + win_h) // win_h) * win_h, ((w + win_w) // win_w) * win_w
+        padh = h_pad - h if h % win_h != 0 else 0
+        padw = w_pad - w if w % win_w != 0 else 0
+        return F.pad(x, (0, padw, 0, padh), value=0)
+
+    def forward(
+        self,
+        index: int,
+        x: torch.FloatTensor,
+        bev: BEVEmbedding,
+        feature: torch.FloatTensor,
+        I_inv: torch.FloatTensor, # 内参矩阵
+        E_inv: torch.FloatTensor, # 外参矩阵
+    ):
+        """
+        x: (b, c, H, W)
+        feature: (b, n, dim_in, h, w)
+        I_inv: (b, n, 3, 3)
+        E_inv: (b, n, 4, 4)
+
+        Returns: (b, d, H, W)
+        """
+        b, n, _, _, _ = feature.shape
+        _, _, H, W = x.shape
+
+        pixel = self.image_plane                                                # b n 3 h w
+        _, _, _, h, w = pixel.shape
+
+        c = E_inv[..., -1:]   # b n 4 1  外参矩阵的最后一列，表示世界坐标系到相机坐标系的平移
+        c_flat = rearrange(c, 'b n ... -> (b n) ...')[..., None]                # (b n) 4 1 1 把前两个维度相乘变成一个维度，后面加了一个维度，以适应卷积: self.cam_embed本质是一个1*1卷积，输入张量形式应该是（batch,channels,height,widh）
+        c_embed = self.cam_embed(c_flat)                                        # (b n) d 1 1 # 表示相机在世界坐标系下的位置信息。这个位置编码将在后面被用作注意力机制中的查询(query)或其他目的；,
+
+        pixel_flat = rearrange(pixel, '... h w -> ... (h w)')                   # 1 1 3 (h w)
+        cam = I_inv @ pixel_flat                                                # b n 3 (h w) 将图像平面坐标 pixel_flat 转换到相机坐标系,为后续与外参数矩阵相乘做准备(X, Y, Z, 1)^T = I_inv * (x, y, 1)^T
+        cam = F.pad(cam, (0, 0, 0, 1, 0, 0, 0, 0), value=1)                     # b n 4 (h w)
+        d = E_inv @ cam                                                         # b n 4 (h w) # 外参数矩阵 E_inv 的形状为 (b, n, 4, 4)。而相机坐标 cam 的最后一个维度是 3,无法直接与 E_inv 相乘。因此,需要在 cam 的最后一个维度上填充 1,使其形状变为 (b, n, 4, h*w)。这样,就可以与外参数矩阵 E_inv 进行矩阵乘法操作
+        d_flat = rearrange(d, 'b n d (h w) -> (b n) d h w', h=h, w=w)           # (b n) 4 h w
+        d_embed = self.img_embed(d_flat)                                        # (b n) d h w 包含了图像每个像素点在世界坐标系下的3D位置信息,以特征向量的形式编码。这个特征嵌入将在后续被用作注意力机制的键(key)或值(value)
+
+        img_embed = d_embed - c_embed                                           # (b n) d h w
+        img_embed = img_embed / (img_embed.norm(dim=1, keepdim=True) + 1e-7)    # (b n) d h w
+
+        # todo: some hard-code for now.
+        if index == 0: # 选择不同`index`对应的`world`坐标,是为了在不同的解码器块中融合不同分辨率的BEV特征,使注意力机制能够获取到多尺度的上下文信息。
+            world = bev.grid0[:2]
+        elif index == 1:
+            world = bev.grid1[:2]
+        elif index == 2:
+            world = bev.grid2[:2]
+        elif index == 3:
+            world = bev.grid3[:2]
+
+        if self.bev_embed_flag:
+            # 2 H W
+            w_embed = self.bev_embed(world[None])      # 1 d H W 将鸟瞰视图坐标系下的每个(x, y)位置坐标,通过一个2D卷积层编码为一个dim维的特征向量。得到的w_embed张量包含了整个BEV图的特征表示
+            bev_embed = w_embed - c_embed              # (b n) d H W 见CVT论文q=c-t ；img_embed建立了图像在三维世界坐标和相机坐标的关系；bev_embed建立了BEV世界坐标和相机坐标的关系，相当于以相机位置作为媒介建立BEV和图像的投影关系
+            bev_embed = bev_embed / (bev_embed.norm(dim=1, keepdim=True) + 1e-7)    # (b n) d H W
+            query_pos = rearrange(bev_embed, '(b n) ... -> b n ...', b=b, n=n)      # b n d H W
+
+        feature_flat = rearrange(feature, 'b n ... -> (b n) ...')               # (b n) d h w
+
+        if self.feature_proj is not None:
+            key_flat = img_embed + self.feature_proj(feature_flat)              # (b n) d h w  见CVT论文key=[camera_pos_emd,features]
+        else:
+            key_flat = img_embed                                                # (b n) d h w
+
+        val_flat = self.feature_linear(feature_flat)                            # (b n) d h w
+
+        # Expand + refine the BEV embedding
+        if self.bev_embed_flag:
+            query = query_pos + x[:, None]
+        else:
+            query = x[:, None]  # b n d H W
+        key = rearrange(key_flat, '(b n) ... -> b n ...', b=b, n=n)  # 构造自feature，即image特征，作为K           # b n d h w
+        val = rearrange(val_flat, '(b n) ... -> b n ...', b=b, n=n)  # 构造自feature，融合摄像头数据后的特征作为value           # b n d h w
+
+        # pad divisible 通过这两种 BEV 特征的融合,注意力机制可以同时获取全局场景信息和局部细节,帮助更好地理解和融合不同视角的特征。We set the window/grid size of I0 as (8, 8) and that of the Q0 as (16,16)
+        key = self.pad_divisble(key, self.feat_win_size[0], self.feat_win_size[1])
+        val = self.pad_divisble(val, self.feat_win_size[0], self.feat_win_size[1])
+
+        # local-to-local cross-attention We set the window/grid size of Q0 as (16, 16)
+        query = rearrange(query, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
+                          w1=self.q_win_size[0], w2=self.q_win_size[1])  # window partition
+        key = rearrange(key, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
+                          w1=self.feat_win_size[0], w2=self.feat_win_size[1])  # window partition
+        val = rearrange(val, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
+                          w1=self.feat_win_size[0], w2=self.feat_win_size[1])  # window partition
+        query = rearrange(self.cross_win_attend_1(query, key, val,
+                                                skip=rearrange(x,
+                                                            'b d (x w1) (y w2) -> b x y w1 w2 d',
+                                                             w1=self.q_win_size[0], w2=self.q_win_size[1]) if self.skip else None),
+                       'b x y w1 w2 d  -> b (x w1) (y w2) d')    # reverse window to feature
+
+        query = query + self.mlp_1(self.prenorm_1(query))
+
+        x_skip = query
+        query = repeat(query, 'b x y d -> b n x y d', n=n)              # b n x y d
+
+        # local-to-global cross-attention
+        query = rearrange(query, 'b n (x w1) (y w2) d -> b n x y w1 w2 d',
+                          w1=self.q_win_size[0], w2=self.q_win_size[1])  # window partition
+        key = rearrange(key, 'b n x y w1 w2 d -> b n (x w1) (y w2) d')  # reverse window to feature
+        key = rearrange(key, 'b n (w1 x) (w2 y) d -> b n x y w1 w2 d',
+                        w1=self.feat_win_size[0], w2=self.feat_win_size[1])  # grid partition
+        val = rearrange(val, 'b n x y w1 w2 d -> b n (x w1) (y w2) d')  # reverse window to feature
+        val = rearrange(val, 'b n (w1 x) (w2 y) d -> b n x y w1 w2 d',
+                        w1=self.feat_win_size[0], w2=self.feat_win_size[1])  # grid partition
+        query = rearrange(self.cross_win_attend_2(query,
+                                                  key,
+                                                  val,
+                                                  skip=rearrange(x_skip,
+                                                            'b (x w1) (y w2) d -> b x y w1 w2 d',
+                                                            w1=self.q_win_size[0],
+                                                            w2=self.q_win_size[1])
+                                                  if self.skip else None),
+                       'b x y w1 w2 d  -> b (x w1) (y w2) d')  # reverse grid to feature
+
+        query = query + self.mlp_2(self.prenorm_2(query))
+
+        query = self.postnorm(query)
+
+        query = rearrange(query, 'b H W d -> b d H W')
+
+        return query
 
 class FAXModule(nn.Module):
     def __init__(
@@ -503,7 +694,7 @@ class FAXModule(nn.Module):
                           'b l m h w -> (b l) m h w')
         features = batch['features']
 
-        x = self.bev_embedding.get_prior()              # d H W
+        x = self.bev_embedding.get_prior()              # d H W ; BEV query,a learnable embedding
         x = repeat(x, '... -> b ...', b=b * l)  # b*l d H W
 
         for i, (cross_view, feature, layer) in \
@@ -512,7 +703,7 @@ class FAXModule(nn.Module):
 
             x = cross_view(i, x, self.bev_embedding, feature, I_inv, E_inv)
             x = layer(x)
-            if i < len(features)-1:
+            if i < len(features)-1: #Afterwards, Q0 is downsampled and refined by two standard residual blocks to obtain Q1 ∈ R64×64×128. The BEV query will perform the same operations with I1 and I2 sequentially toobtain the final BEV feature Q2 in R32×32×128
                 down_sample_block = self.downsample_layers[i]
                 x = down_sample_block(x)
 
