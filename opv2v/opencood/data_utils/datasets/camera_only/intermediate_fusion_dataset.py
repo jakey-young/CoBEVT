@@ -20,92 +20,182 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
         self.visible = params['train_params']['visible']
 
     def __getitem__(self, idx):
-        data_sample = self.get_sample_random(idx) # 该场景下互联的车辆[ego[time_delay,params(相机坐标)，camera_np(四个相机的图像信息)，bev_dynamic.png,bev_static.png,bev_lane.png,bev_visibility.png,bev_visibility_corp.png,object_id(视野范围目标id),object_bbx_cav,object_bbx_mask],cav1,cav2,...]
+        data_sample_list, cur_idx= self.get_multi_sample_random(idx) # 该场景下互联的车辆[ego[time_delay,params(相机坐标)，camera_np(四个相机的图像信息)，bev_dynamic.png,bev_static.png,bev_lane.png,bev_visibility.png,bev_visibility_corp.png,object_id(视野范围目标id),object_bbx_cav,object_bbx_mask],cav1,cav2,...]
+        processed_data_dict_list = self.get_processed_data(data_sample_list)
+        # data_sample = self.get_sample_random(idx)  # 该场景下互联的车辆[ego[time_delay,params(相机坐标)，camera_np(四个相机的图像信息)，bev_dynamic.png,bev_static.png,bev_lane.png,bev_visibility.png,bev_visibility_corp.png,object_id(视野范围目标id),object_bbx_cav,object_bbx_mask],cav1,cav2,...]
+        # processed_data_dict = OrderedDict()
+        # processed_data_dict['ego'] = OrderedDict()
+        #
+        # ego_id = -999
+        # ego_lidar_pose = []
+        #
+        # # first find the ego vehicle's lidar pose
+        # for cav_id, cav_content in data_sample.items():
+        #     if cav_content['ego']:
+        #         ego_id = cav_id
+        #         ego_lidar_pose = cav_content['params']['lidar_pose']
+        #         break
+        # assert cav_id == list(data_sample.keys())[
+        #     0], "The first element in the OrderedDict must be ego"
+        # assert ego_id != -999
+        # assert len(ego_lidar_pose) > 0
+        #
+        # pairwise_t_matrix = \
+        #     self.get_pairwise_transformation(data_sample,
+        #                                      self.params['train_params']['max_cav'])
+        #
+        # # Final shape: (L, M, H, W, 3)
+        # camera_data = []
+        # # (L, M, 3, 3)
+        # camera_intrinsic = []
+        # # (L, M, 4, 4)
+        # camera2ego = []
+        #
+        # # (max_cav, 4, 4)
+        # transformation_matrix = []
+        # # (1, H, W)
+        # gt_static = []
+        # # (1, h, w)
+        # gt_dynamic = []
+        #
+        # # loop over all CAVs to process information
+        # for cav_id, selected_cav_base in data_sample.items():
+        #     distance = common_utils.cav_distance_cal(selected_cav_base,
+        #                                              ego_lidar_pose)
+        #     if distance > opencood.data_utils.datasets.COM_RANGE:
+        #         continue
+        #
+        #     selected_cav_processed = \
+        #         self.get_single_cav(selected_cav_base)
+        #
+        #     camera_data.append(selected_cav_processed['camera']['data'])
+        #     camera_intrinsic.append(
+        #         selected_cav_processed['camera']['intrinsic'])
+        #     camera2ego.append(
+        #         selected_cav_processed['camera']['extrinsic'])
+        #     transformation_matrix.append(
+        #         selected_cav_processed['transformation_matrix'])
+        #
+        #     if cav_id == ego_id:
+        #         gt_dynamic.append(
+        #             selected_cav_processed['gt']['dynamic_bev'])
+        #         gt_static.append(
+        #             selected_cav_processed['gt']['static_bev'])
+        #
+        # # stack all agents together
+        # camera_data = np.stack(camera_data)
+        # camera_intrinsic = np.stack(camera_intrinsic)
+        # camera2ego = np.stack(camera2ego)
+        #
+        # gt_dynamic = np.stack(gt_dynamic)
+        # gt_static = np.stack(gt_static)
+        #
+        # # padding
+        # transformation_matrix = np.stack(transformation_matrix)
+        # padding_eye = np.tile(np.eye(4)[None], (self.max_cav - len(
+        #                                        transformation_matrix), 1, 1))
+        # transformation_matrix = np.concatenate(
+        #     [transformation_matrix, padding_eye], axis=0)
+        #
+        # processed_data_dict['ego'].update({
+        #     'transformation_matrix': transformation_matrix,
+        #     'pairwise_t_matrix': pairwise_t_matrix,
+        #     'camera_data': camera_data,
+        #     'camera_intrinsic': camera_intrinsic,
+        #     'camera_extrinsic': camera2ego,
+        #     'gt_dynamic': gt_dynamic,
+        #     'gt_static': gt_static})
+        #
+        # return processed_data_dict # ['ego'[transformation_matrix;pairwise_t_matrix;camera_data(connected_car_num,4,512,512,3);camera_intrinsic;canera_extrinsic;gt_dynamic(1,256,256);gt_static(1,256,256)]]
+        return processed_data_dict_list
 
-        processed_data_dict = OrderedDict()
-        processed_data_dict['ego'] = OrderedDict()
+    def get_processed_data(self, data_sample_list):
+        processed_data_dict_list = OrderedDict()
+        for time_index, data_sample in data_sample_list.items():
+            processed_data_dict = OrderedDict()
+            processed_data_dict['ego'] = OrderedDict()
 
-        ego_id = -999
-        ego_lidar_pose = []
+            ego_id = -999
+            ego_lidar_pose = []
 
-        # first find the ego vehicle's lidar pose
-        for cav_id, cav_content in data_sample.items():
-            if cav_content['ego']:
-                ego_id = cav_id
-                ego_lidar_pose = cav_content['params']['lidar_pose']
-                break
-        assert cav_id == list(data_sample.keys())[
-            0], "The first element in the OrderedDict must be ego"
-        assert ego_id != -999
-        assert len(ego_lidar_pose) > 0
+            # first find the ego vehicle's lidar pose
+            for cav_id, cav_content in data_sample.items():
+                if cav_content['ego']:
+                    ego_id = cav_id
+                    ego_lidar_pose = cav_content['params']['lidar_pose']
+                    break
+            assert cav_id == list(data_sample.keys())[
+                0], "The first element in the OrderedDict must be ego"
+            assert ego_id != -999
+            assert len(ego_lidar_pose) > 0
 
-        pairwise_t_matrix = \
-            self.get_pairwise_transformation(data_sample,
-                                             self.params['train_params']['max_cav'])
+            pairwise_t_matrix = \
+                self.get_pairwise_transformation(data_sample,
+                                                 self.params['train_params']['max_cav'])
 
-        # Final shape: (L, M, H, W, 3)
-        camera_data = []
-        # (L, M, 3, 3)
-        camera_intrinsic = []
-        # (L, M, 4, 4)
-        camera2ego = []
+            # Final shape: (L, M, H, W, 3)
+            camera_data = []
+            # (L, M, 3, 3)
+            camera_intrinsic = []
+            # (L, M, 4, 4)
+            camera2ego = []
 
-        # (max_cav, 4, 4)
-        transformation_matrix = []
-        # (1, H, W)
-        gt_static = []
-        # (1, h, w)
-        gt_dynamic = []
+            # (max_cav, 4, 4)
+            transformation_matrix = []
+            # (1, H, W)
+            gt_static = []
+            # (1, h, w)
+            gt_dynamic = []
 
-        # loop over all CAVs to process information
-        for cav_id, selected_cav_base in data_sample.items():
-            distance = common_utils.cav_distance_cal(selected_cav_base,
-                                                     ego_lidar_pose)
-            if distance > opencood.data_utils.datasets.COM_RANGE:
-                continue
+            # loop over all CAVs to process information
+            for cav_id, selected_cav_base in data_sample.items():
+                distance = common_utils.cav_distance_cal(selected_cav_base,
+                                                         ego_lidar_pose)
+                if distance > opencood.data_utils.datasets.COM_RANGE:
+                    continue
 
-            selected_cav_processed = \
-                self.get_single_cav(selected_cav_base)
+                selected_cav_processed = \
+                    self.get_single_cav(selected_cav_base)
 
-            camera_data.append(selected_cav_processed['camera']['data'])
-            camera_intrinsic.append(
-                selected_cav_processed['camera']['intrinsic'])
-            camera2ego.append(
-                selected_cav_processed['camera']['extrinsic'])
-            transformation_matrix.append(
-                selected_cav_processed['transformation_matrix'])
+                camera_data.append(selected_cav_processed['camera']['data'])
+                camera_intrinsic.append(
+                    selected_cav_processed['camera']['intrinsic'])
+                camera2ego.append(
+                    selected_cav_processed['camera']['extrinsic'])
+                transformation_matrix.append(
+                    selected_cav_processed['transformation_matrix'])
 
-            if cav_id == ego_id:
-                gt_dynamic.append(
-                    selected_cav_processed['gt']['dynamic_bev'])
-                gt_static.append(
-                    selected_cav_processed['gt']['static_bev'])
+                if cav_id == ego_id:
+                    gt_dynamic.append(
+                        selected_cav_processed['gt']['dynamic_bev'])
+                    gt_static.append(
+                        selected_cav_processed['gt']['static_bev'])
 
-        # stack all agents together
-        camera_data = np.stack(camera_data)
-        camera_intrinsic = np.stack(camera_intrinsic)
-        camera2ego = np.stack(camera2ego)
+            # stack all agents together
+            camera_data = np.stack(camera_data)
+            camera_intrinsic = np.stack(camera_intrinsic)
+            camera2ego = np.stack(camera2ego)
 
-        gt_dynamic = np.stack(gt_dynamic)
-        gt_static = np.stack(gt_static)
+            gt_dynamic = np.stack(gt_dynamic)
+            gt_static = np.stack(gt_static)
 
-        # padding
-        transformation_matrix = np.stack(transformation_matrix)
-        padding_eye = np.tile(np.eye(4)[None], (self.max_cav - len(
-                                               transformation_matrix), 1, 1))
-        transformation_matrix = np.concatenate(
-            [transformation_matrix, padding_eye], axis=0)
+            # padding
+            transformation_matrix = np.stack(transformation_matrix)
+            padding_eye = np.tile(np.eye(4)[None], (self.max_cav - len(
+                                                   transformation_matrix), 1, 1))
+            transformation_matrix = np.concatenate(
+                [transformation_matrix, padding_eye], axis=0)
 
-        processed_data_dict['ego'].update({
-            'transformation_matrix': transformation_matrix,
-            'pairwise_t_matrix': pairwise_t_matrix,
-            'camera_data': camera_data,
-            'camera_intrinsic': camera_intrinsic,
-            'camera_extrinsic': camera2ego,
-            'gt_dynamic': gt_dynamic,
-            'gt_static': gt_static})
-
-        return processed_data_dict # ['ego'[transformation_matrix;pairwise_t_matrix;camera_data(connected_car_num,4,512,512,3);camera_intrinsic;canera_extrinsic;gt_dynamic(1,256,256);gt_static(1,256,256)]]
+            processed_data_dict['ego'].update({
+                'transformation_matrix': transformation_matrix,
+                'pairwise_t_matrix': pairwise_t_matrix,
+                'camera_data': camera_data,
+                'camera_intrinsic': camera_intrinsic,
+                'camera_extrinsic': camera2ego,
+                'gt_dynamic': gt_dynamic,
+                'gt_static': gt_static})
+            processed_data_dict_list[time_index] = processed_data_dict
+        return processed_data_dict_list
 
     @staticmethod
     def get_pairwise_transformation(base_data_dict, max_cav):

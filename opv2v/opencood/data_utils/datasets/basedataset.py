@@ -318,6 +318,170 @@ class BaseDataset(Dataset):
 
         return scenario_database, timestamp_index
 
+    def retrieve_by_idx_his(self, idx):
+        # we loop the accumulated length list to see get the scenario index
+        scenario_index = 0
+        for i, ele in enumerate(self.len_record): # 用于确定给定idx所属场景；len_record应该表示总共多少个场景（可索引数量，43个场景，每增加一个索引叠加一次；比如第一个场景5个时间戳数据，第二改革场景6个时间戳数据，那么len_record列表就是[5,11]）
+            if idx < ele:
+                scenario_index = i
+                break
+        scenario_database = self.scenario_database[scenario_index] # 得到该场景下互连的车辆代号集合
+
+        # check the timestamp index 本次索引对象对应该场景下第几个时间戳
+        timestamp_index = idx if scenario_index == 0 else \
+            idx - self.len_record[scenario_index - 1]
+
+        return scenario_database, timestamp_index, scenario_index
+    def retrieve_multi_data(self, idx, select_num=1, cur_ego_pose_flag=True):
+        scenario_index = 0
+        for i, ele in enumerate(self.len_record):
+            if idx < ele:
+                scenario_index = i
+                break
+
+        # check the timestamp index
+        timestamp_index = idx if scenario_index == 0 else \
+            idx - self.len_record[scenario_index - 1]
+
+        if timestamp_index < select_num:
+            idx += select_num
+
+        select_dict = OrderedDict()
+        scenario_index_list = []
+        index_list = []
+        scenario_index = 0
+        timestamp_key = 0
+        for j in range(idx,idx-select_num-1,-1): # 选用过去?帧的数据
+            if j == idx:
+                scenario_database, scenario_index, timestamp_key = self.retrieve_current_data(j, cur_ego_pose_flag)
+            else:
+                scenario_database = self.retrieve_before_data(j, scenario_index, timestamp_key, cur_ego_pose_flag)
+            select_dict[j] = scenario_database
+        return select_dict, idx
+
+    def retrieve_current_data(self, idx, cur_ego_pose_flag=True):
+        if isinstance(idx, int):
+            scenario_database, timestamp_index, scenario_index = self.retrieve_by_idx_his(idx)
+        elif isinstance(idx, tuple):
+            scenario_database = self.scenario_database[idx[0]]
+            timestamp_index = idx[1]
+        else:
+            import sys
+            sys.exit('Index has to be a int or tuple')
+
+        # retrieve the corresponding timestamp key
+        timestamp_key = self.return_timestamp_key(scenario_database,
+                                                  timestamp_index) # Given the timestamp index, return the correct timestamp key
+        # calculate distance to ego for each cav for time delay estimation
+        ego_cav_content = \
+            self.calc_dist_to_ego(scenario_database, timestamp_key)
+
+        data = OrderedDict()
+        # load files for all CAVs
+        for cav_id, cav_content in scenario_database.items():
+            data[cav_id] = OrderedDict()
+            data[cav_id]['ego'] = cav_content['ego']
+
+            # calculate delay for this vehicle
+            timestamp_delay = \
+                self.time_delay_calculation(cav_content['ego'])
+
+            if timestamp_index - timestamp_delay <= 0:
+                timestamp_delay = timestamp_index
+
+            timestamp_index_delay = max(0, timestamp_index - timestamp_delay)
+            timestamp_key_delay = self.return_timestamp_key(scenario_database,
+                                                            timestamp_index_delay)
+            # add time delay to vehicle parameters
+            data[cav_id]['time_delay'] = timestamp_delay
+
+            # load the camera transformation matrix to dictionary
+            data[cav_id]['camera_params'] = \
+                self.reform_camera_param(cav_content,
+                                         ego_cav_content,
+                                         timestamp_key)
+            # load the lidar params into the dictionary
+            data[cav_id]['params'] = self.reform_lidar_param(cav_content,
+                                                             ego_cav_content,
+                                                             timestamp_key,
+                                                             timestamp_key_delay,
+                                                             cur_ego_pose_flag)
+            # todoL temporally disable pcd loading
+            # data[cav_id]['lidar_np'] = \
+            #     pcd_utils.pcd_to_np(cav_content[timestamp_key_delay]['lidar'])
+            data[cav_id]['camera_np'] = \
+                load_rgb_from_files(
+                    cav_content[timestamp_key_delay]['cameras'])  # 该时间戳下车辆(cav_id)四个摄像头的图像数据
+            for file_extension in self.add_data_extension:
+                # todo: currently not considering delay!
+                # output should be only yaml or image
+                if '.yaml' in file_extension:
+                    data[cav_id][file_extension] = \
+                        load_yaml(cav_content[timestamp_key][file_extension])
+                else:
+                    data[cav_id][file_extension] = \
+                        cv2.imread(cav_content[timestamp_key][file_extension])
+
+        return data, scenario_index, timestamp_key
+
+    def retrieve_before_data(self, idx, scenario_index, cur_timestamp_key, cur_ego_pose_flag=True):
+        scenario_database = self.scenario_database[scenario_index]
+        timestamp_index = idx if scenario_index == 0 else \
+            idx - self.len_record[scenario_index - 1]
+        timestamp_key = self.return_timestamp_key(scenario_database,
+                                                  timestamp_index)  # Given the timestamp index, return the correct timestamp key
+        # calculate distance to ego for each cav for time delay estimation
+        ego_cav_content = \
+            self.calc_dist_to_ego(scenario_database, timestamp_key)
+
+        data = OrderedDict()
+        # load files for all CAVs
+        for cav_id, cav_content in scenario_database.items():
+            if cav_content['ego']:
+                data[cav_id] = OrderedDict()
+                data[cav_id]['ego'] = cav_content['ego']
+
+                # calculate delay for this vehicle
+                timestamp_delay = \
+                    self.time_delay_calculation(cav_content['ego'])
+
+                if timestamp_index - timestamp_delay <= 0:
+                    timestamp_delay = timestamp_index
+
+                timestamp_index_delay = max(0, timestamp_index - timestamp_delay)
+                timestamp_key_delay = self.return_timestamp_key(scenario_database,
+                                                                timestamp_index_delay)
+                # add time delay to vehicle parameters
+                data[cav_id]['time_delay'] = timestamp_delay
+
+                # load the camera transformation matrix to dictionary
+                data[cav_id]['camera_params'] = \
+                    self.reform_camera_param(cav_content,
+                                             ego_cav_content,
+                                             timestamp_key)
+                # load the lidar params into the dictionary
+                data[cav_id]['params'] = self.reform_lidar_param(cav_content,
+                                                                 ego_cav_content,
+                                                                 cur_timestamp_key,
+                                                                 timestamp_key_delay,
+                                                                 cur_ego_pose_flag)
+                # todoL temporally disable pcd loading
+                # data[cav_id]['lidar_np'] = \
+                #     pcd_utils.pcd_to_np(cav_content[timestamp_key_delay]['lidar'])
+                data[cav_id]['camera_np'] = \
+                    load_rgb_from_files(
+                        cav_content[timestamp_key_delay]['cameras'])  # 该时间戳下车辆(cav_id)四个摄像头的图像数据
+                for file_extension in self.add_data_extension:
+                    # todo: currently not considering delay!
+                    # output should be only yaml or image
+                    if '.yaml' in file_extension:
+                        data[cav_id][file_extension] = \
+                            load_yaml(cav_content[timestamp_key][file_extension])
+                    else:
+                        data[cav_id][file_extension] = \
+                            cv2.imread(cav_content[timestamp_key][file_extension])
+
+        return data
     @staticmethod
     def extract_timestamps(yaml_files):
         """

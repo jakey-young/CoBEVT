@@ -197,9 +197,9 @@ class CrossWinAttention(nn.Module):
 
     def forward(self, q, k, v, skip=None):
         """
-        q: (b n X Y W1 W2 d)
-        k: (b n x y w1 w2 d)
-        v: (b n x y w1 w2 d)
+        q: (b n X Y W1 W2 d) :(3,1,4,4,16,16,128)
+        k: (b n x y w1 w2 d) :(3,4,4,4,8,8,128)
+        v: (b n x y w1 w2 d) :(3,4,4,4,8,8,128)
         return: (b X Y W1 W2 d)
         """
         assert k.shape == v.shape
@@ -208,19 +208,19 @@ class CrossWinAttention(nn.Module):
         assert q_height * q_width == kv_height * kv_width
 
         # flattening
-        q = rearrange(q, 'b n x y w1 w2 d -> b (x y) (n w1 w2) d')
-        k = rearrange(k, 'b n x y w1 w2 d -> b (x y) (n w1 w2) d')
-        v = rearrange(v, 'b n x y w1 w2 d -> b (x y) (n w1 w2) d')
+        q = rearrange(q, 'b n x y w1 w2 d -> b (x y) (n w1 w2) d') # i=0:(b,64,1024,128) (b,16,256,128)
+        k = rearrange(k, 'b n x y w1 w2 d -> b (x y) (n w1 w2) d') # i=0:(b,64,256,128) (b,16,256,128)
+        v = rearrange(v, 'b n x y w1 w2 d -> b (x y) (n w1 w2) d') # i=0:(b,64,256,128) (b,16,256,128)
 
         # Project with multiple heads
-        q = self.to_q(q)                                # b (X Y) (n W1 W2) (heads dim_head)
-        k = self.to_k(k)                                # b (X Y) (n w1 w2) (heads dim_head)
-        v = self.to_v(v)                                # b (X Y) (n w1 w2) (heads dim_head)
+        q = self.to_q(q)                                # b (X Y) (n W1 W2) (heads dim_head) : b (4,4) (1,16,16) (128)
+        k = self.to_k(k)                                # b (X Y) (n w1 w2) (heads dim_head) : b (4,4) (4,8,8) (128)
+        v = self.to_v(v)                                # b (X Y) (n w1 w2) (heads dim_head) : b (4,4) (4,8,8) (128)
 
         # Group the head dim with batch dim
-        q = rearrange(q, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head)
-        k = rearrange(k, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head)
-        v = rearrange(v, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head)
+        q = rearrange(q, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head) # i=0:(bm,64,1024,32) (12,16,256,32)
+        k = rearrange(k, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head) # i=0:(bm,64,256,32) (12,16,256,32)
+        v = rearrange(v, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head) # i=0:(bm,64,256,32) (12,16,256,32)
 
         # Dot product attention along cameras计算相似度分数
         dot = self.scale * torch.einsum('b l Q d, b l K d -> b l Q K', q, k)  # b (X Y) (n W1 W2) (n w1 w2)
@@ -328,6 +328,7 @@ class CrossViewSwapAttention(nn.Module):
         feature: torch.FloatTensor,
         I_inv: torch.FloatTensor, # 内参矩阵
         E_inv: torch.FloatTensor, # 外参矩阵
+        bev_pre  # 下采样前bev
     ):
         """
         x: (b, c, H, W)
@@ -340,7 +341,7 @@ class CrossViewSwapAttention(nn.Module):
         b, n, _, _, _ = feature.shape
         _, _, H, W = x.shape
 
-        pixel = self.image_plane                                                # b n 3 h w
+        pixel = self.image_plane     # 1,1,3,64,64                                     # b n 3 h w
         _, _, _, h, w = pixel.shape
 
         c = E_inv[..., -1:]   # b n 4 1  外参矩阵的最后一列，表示世界坐标系到相机坐标系的平移
@@ -359,11 +360,11 @@ class CrossViewSwapAttention(nn.Module):
 
         # todo: some hard-code for now.
         if index == 0: # 选择不同`index`对应的`world`坐标,是为了在不同的解码器块中融合不同分辨率的BEV特征,使注意力机制能够获取到多尺度的上下文信息。
-            world = bev.grid0[:2]
+            world = bev.grid0[:2] # （3，128，128）
         elif index == 1:
-            world = bev.grid1[:2]
+            world = bev.grid1[:2] # （3，64，64）
         elif index == 2:
-            world = bev.grid2[:2]
+            world = bev.grid2[:2] # （3，32，32）
         elif index == 3:
             world = bev.grid3[:2]
 
@@ -388,6 +389,13 @@ class CrossViewSwapAttention(nn.Module):
             query = query_pos + x[:, None]
         else:
             query = x[:, None]  # b n d H W
+
+        if bev_pre != None:
+            query_pre = bev_pre[:, None]
+            query_pre = rearrange(query_pre, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
+                                  w1=self.q_win_size[0] * 2, w2=self.q_win_size[1] * 2)  # window partition
+        else: query_pre = None
+
         key = rearrange(key_flat, '(b n) ... -> b n ...', b=b, n=n)  # 构造自feature，即image特征，作为K           # b n d h w
         val = rearrange(val_flat, '(b n) ... -> b n ...', b=b, n=n)  # 构造自feature，融合摄像头数据后的特征作为value           # b n d h w
 
@@ -398,6 +406,7 @@ class CrossViewSwapAttention(nn.Module):
         # local-to-local cross-attention We set the window/grid size of Q0 as (16, 16)
         query = rearrange(query, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
                           w1=self.q_win_size[0], w2=self.q_win_size[1])  # window partition
+
         key = rearrange(key, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
                           w1=self.feat_win_size[0], w2=self.feat_win_size[1])  # window partition
         val = rearrange(val, 'b n d (x w1) (y w2) -> b n x y w1 w2 d',
@@ -406,7 +415,19 @@ class CrossViewSwapAttention(nn.Module):
                                                 skip=rearrange(x,
                                                             'b d (x w1) (y w2) -> b x y w1 w2 d',
                                                              w1=self.q_win_size[0], w2=self.q_win_size[1]) if self.skip else None),
-                       'b x y w1 w2 d  -> b (x w1) (y w2) d')    # reverse window to feature
+                       'b x y w1 w2 d  -> b (x w1) (y w2) d')    # reverse window to feature(3,64,64,128)
+        if query_pre != None:
+            query_pre = rearrange(self.cross_win_attend_1(query_pre, key, val,
+                                                      skip= None),
+                              'b x y w1 w2 d  -> b (x w1) (y w2) d')  # reverse window to feature(3,64,64,128)
+
+            query_pre = F.interpolate(query_pre, size=(query.size(1),query.size(1)), mode='bilinear', align_corners=False)
+            query_pre = rearrange(query_pre,'b d X Y -> b X Y d')
+            concat = torch.cat([query,query_pre],dim=-1)
+            concat = rearrange(concat, 'b H W d -> b d H W')
+            scale_channel = torch.nn.Conv2d(concat.size(1),query.size(-1),kernel_size=1).to(device=0)
+            query = scale_channel(concat)
+            query = rearrange(query, 'b d H W -> b H W d')
 
         query = query + self.mlp_1(self.prenorm_1(query))
 
@@ -520,6 +541,7 @@ class HFAX(nn.Module):
         feature: torch.FloatTensor,
         I_inv: torch.FloatTensor, # 内参矩阵
         E_inv: torch.FloatTensor, # 外参矩阵
+        bev_pre                   # 下采样前bev
     ):
         """
         x: (b, c, H, W)
@@ -580,6 +602,9 @@ class HFAX(nn.Module):
             query = query_pos + x[:, None]
         else:
             query = x[:, None]  # b n d H W
+        if bev_pre != None:
+            query_pre = bev_pre[:, None]
+
         key = rearrange(key_flat, '(b n) ... -> b n ...', b=b, n=n)  # 构造自feature，即image特征，作为K           # b n d h w
         val = rearrange(val_flat, '(b n) ... -> b n ...', b=b, n=n)  # 构造自feature，融合摄像头数据后的特征作为value           # b n d h w
 
@@ -696,13 +721,14 @@ class FAXModule(nn.Module):
 
         x = self.bev_embedding.get_prior()              # d H W ; BEV query,a learnable embedding
         x = repeat(x, '... -> b ...', b=b * l)  # b*l d H W
-
+        bev_pre = None
         for i, (cross_view, feature, layer) in \
                 enumerate(zip(self.cross_views, features, self.layers)):
             feature = rearrange(feature, 'b l n ... -> (b l) n ...', b=b, n=n)
 
-            x = cross_view(i, x, self.bev_embedding, feature, I_inv, E_inv)
+            x = cross_view(i, x, self.bev_embedding, feature, I_inv, E_inv, bev_pre)
             x = layer(x)
+            bev_pre = x
             if i < len(features)-1: #Afterwards, Q0 is downsampled and refined by two standard residual blocks to obtain Q1 ∈ R64×64×128. The BEV query will perform the same operations with I1 and I2 sequentially toobtain the final BEV feature Q2 in R32×32×128
                 down_sample_block = self.downsample_layers[i]
                 x = down_sample_block(x)

@@ -26,8 +26,61 @@ class BaseCameraDataset(basedataset.BaseDataset):
 
     def get_sample_random(self, idx):
         base_data_dict = self.retrieve_base_data(idx, True)
-
         return self.get_data_sample(base_data_dict)
+
+
+    def get_multi_sample_random(self, idx):
+        base_data_dict_list, cur_idx = self.retrieve_multi_data(idx)
+        return self.get_multi_data_sample(base_data_dict_list), cur_idx
+    def get_multi_data_sample(self,base_data_dict_list):
+        processed_data_dict_with_history = OrderedDict()
+        for time_index,  base_data_dict in base_data_dict_list.items():
+
+            processed_data_dict = OrderedDict()
+            ego_id, ego_lidar_pose = self.find_ego_pose(base_data_dict)
+
+            # used to save all object coordinates under ego space
+            object_stack = []
+            object_id_stack = []
+
+            # loop over all CAVs to process information
+            for cav_id, selected_cav_base in base_data_dict.items():
+                # check if the cav is within the communication range with ego
+                distance = common_utils.cav_distance_cal(selected_cav_base,
+                                                         ego_lidar_pose)
+                if distance > opencood.data_utils.datasets.COM_RANGE:
+                    continue
+                processed_data_dict[cav_id] = base_data_dict[cav_id]
+                # the objects bbx position under ego and cav lidar coordinate frame
+                object_bbx_ego, object_bbx_cav, object_ids = \
+                    self.get_item_single_car(selected_cav_base,
+                                             ego_lidar_pose)
+
+                object_stack.append(object_bbx_ego)
+                object_id_stack += object_ids
+
+                processed_data_dict[cav_id]['object_bbx_cav'] = object_bbx_cav
+                processed_data_dict[cav_id]['object_id'] = object_ids
+
+            # Object stack contains all objects that can be detected from all
+            # cavs nearby under ego coordinates. We need to exclude the repititions
+            unique_indices = \
+                [object_id_stack.index(x) for x in set(object_id_stack)]
+            object_stack = np.vstack(object_stack)
+            object_stack = object_stack[unique_indices]
+
+            # make sure bounding boxes across all frames have the same number
+            object_bbx_center = \
+                np.zeros((100, 7))
+            mask = np.zeros(100)
+            object_bbx_center[:object_stack.shape[0], :] = object_stack
+            mask[:object_stack.shape[0]] = 1
+
+            # update the ego vehicle with all objects coordinates
+            processed_data_dict[ego_id]['object_bbx_ego'] = object_bbx_center
+            processed_data_dict[ego_id]['object_bbx_ego_mask'] = mask
+            processed_data_dict_with_history[time_index] = processed_data_dict
+        return processed_data_dict_with_history
 
     def get_sample(self, scenario_idx, timestamp_index):
         """
