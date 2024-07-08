@@ -20,97 +20,104 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
         self.visible = params['train_params']['visible']
 
     def __getitem__(self, idx):
-        data_sample_list, cur_idx= self.get_multi_sample_random(idx) # 该场景下互联的车辆[ego[time_delay,params(相机坐标)，camera_np(四个相机的图像信息)，bev_dynamic.png,bev_static.png,bev_lane.png,bev_visibility.png,bev_visibility_corp.png,object_id(视野范围目标id),object_bbx_cav,object_bbx_mask],cav1,cav2,...]
-        processed_data_dict_list = self.get_processed_data(data_sample_list)
-        # data_sample = self.get_sample_random(idx)  # 该场景下互联的车辆[ego[time_delay,params(相机坐标)，camera_np(四个相机的图像信息)，bev_dynamic.png,bev_static.png,bev_lane.png,bev_visibility.png,bev_visibility_corp.png,object_id(视野范围目标id),object_bbx_cav,object_bbx_mask],cav1,cav2,...]
-        # processed_data_dict = OrderedDict()
-        # processed_data_dict['ego'] = OrderedDict()
-        #
-        # ego_id = -999
-        # ego_lidar_pose = []
-        #
-        # # first find the ego vehicle's lidar pose
-        # for cav_id, cav_content in data_sample.items():
-        #     if cav_content['ego']:
-        #         ego_id = cav_id
-        #         ego_lidar_pose = cav_content['params']['lidar_pose']
-        #         break
-        # assert cav_id == list(data_sample.keys())[
-        #     0], "The first element in the OrderedDict must be ego"
-        # assert ego_id != -999
-        # assert len(ego_lidar_pose) > 0
-        #
-        # pairwise_t_matrix = \
-        #     self.get_pairwise_transformation(data_sample,
-        #                                      self.params['train_params']['max_cav'])
-        #
-        # # Final shape: (L, M, H, W, 3)
-        # camera_data = []
-        # # (L, M, 3, 3)
-        # camera_intrinsic = []
-        # # (L, M, 4, 4)
-        # camera2ego = []
-        #
-        # # (max_cav, 4, 4)
-        # transformation_matrix = []
-        # # (1, H, W)
-        # gt_static = []
-        # # (1, h, w)
-        # gt_dynamic = []
-        #
-        # # loop over all CAVs to process information
-        # for cav_id, selected_cav_base in data_sample.items():
-        #     distance = common_utils.cav_distance_cal(selected_cav_base,
-        #                                              ego_lidar_pose)
-        #     if distance > opencood.data_utils.datasets.COM_RANGE:
-        #         continue
-        #
-        #     selected_cav_processed = \
-        #         self.get_single_cav(selected_cav_base)
-        #
-        #     camera_data.append(selected_cav_processed['camera']['data'])
-        #     camera_intrinsic.append(
-        #         selected_cav_processed['camera']['intrinsic'])
-        #     camera2ego.append(
-        #         selected_cav_processed['camera']['extrinsic'])
-        #     transformation_matrix.append(
-        #         selected_cav_processed['transformation_matrix'])
-        #
-        #     if cav_id == ego_id:
-        #         gt_dynamic.append(
-        #             selected_cav_processed['gt']['dynamic_bev'])
-        #         gt_static.append(
-        #             selected_cav_processed['gt']['static_bev'])
-        #
-        # # stack all agents together
-        # camera_data = np.stack(camera_data)
-        # camera_intrinsic = np.stack(camera_intrinsic)
-        # camera2ego = np.stack(camera2ego)
-        #
-        # gt_dynamic = np.stack(gt_dynamic)
-        # gt_static = np.stack(gt_static)
-        #
-        # # padding
-        # transformation_matrix = np.stack(transformation_matrix)
-        # padding_eye = np.tile(np.eye(4)[None], (self.max_cav - len(
-        #                                        transformation_matrix), 1, 1))
-        # transformation_matrix = np.concatenate(
-        #     [transformation_matrix, padding_eye], axis=0)
-        #
-        # processed_data_dict['ego'].update({
-        #     'transformation_matrix': transformation_matrix,
-        #     'pairwise_t_matrix': pairwise_t_matrix,
-        #     'camera_data': camera_data,
-        #     'camera_intrinsic': camera_intrinsic,
-        #     'camera_extrinsic': camera2ego,
-        #     'gt_dynamic': gt_dynamic,
-        #     'gt_static': gt_static})
-        #
-        # return processed_data_dict # ['ego'[transformation_matrix;pairwise_t_matrix;camera_data(connected_car_num,4,512,512,3);camera_intrinsic;canera_extrinsic;gt_dynamic(1,256,256);gt_static(1,256,256)]]
+        data_sample_list, cur_idx = self.get_multi_sample_random(idx) # 该场景下互联的车辆[ego[time_delay,params(相机坐标)，camera_np(四个相机的图像信息)，bev_dynamic.png,bev_static.png,bev_lane.png,bev_visibility.png,bev_visibility_corp.png,object_id(视野范围目标id),object_bbx_cav,object_bbx_mask],cav1,cav2,...]
+        processed_data_dict_list = self.return_processed_data_history(data_sample_list)
         return processed_data_dict_list
 
-    def get_processed_data(self, data_sample_list):
-        processed_data_dict_list = OrderedDict()
+        # processed_data_dict = self.return_processed_data(idx)
+        # return processed_data_dict # ['ego'[transformation_matrix;pairwise_t_matrix;camera_data(connected_car_num,4,512,512,3);camera_intrinsic;canera_extrinsic;gt_dynamic(1,256,256);gt_static(1,256,256)]]
+
+
+
+    def return_processed_data(self,idx):
+        data_sample = self.get_sample_random(
+            idx)  # 该场景下互联的车辆[ego[time_delay,params(相机坐标)，camera_np(四个相机的图像信息)，bev_dynamic.png,bev_static.png,bev_lane.png,bev_visibility.png,bev_visibility_corp.png,object_id(视野范围目标id),object_bbx_cav,object_bbx_mask],cav1,cav2,...]
+        processed_data_dict = OrderedDict()
+        processed_data_dict['ego'] = OrderedDict()
+
+        ego_id = -999
+        ego_lidar_pose = []
+
+        # first find the ego vehicle's lidar pose
+        for cav_id, cav_content in data_sample.items():
+            if cav_content['ego']:
+                ego_id = cav_id
+                ego_lidar_pose = cav_content['params']['lidar_pose']
+                break
+        assert cav_id == list(data_sample.keys())[
+            0], "The first element in the OrderedDict must be ego"
+        assert ego_id != -999
+        assert len(ego_lidar_pose) > 0
+
+        pairwise_t_matrix = \
+            self.get_pairwise_transformation(data_sample,
+                                             self.params['train_params']['max_cav'])
+
+        # Final shape: (L, M, H, W, 3)
+        camera_data = []
+        # (L, M, 3, 3)
+        camera_intrinsic = []
+        # (L, M, 4, 4)
+        camera2ego = []
+
+        # (max_cav, 4, 4)
+        transformation_matrix = []
+        # (1, H, W)
+        gt_static = []
+        # (1, h, w)
+        gt_dynamic = []
+
+        # loop over all CAVs to process information
+        for cav_id, selected_cav_base in data_sample.items():
+            distance = common_utils.cav_distance_cal(selected_cav_base,
+                                                     ego_lidar_pose)
+            if distance > opencood.data_utils.datasets.COM_RANGE:
+                continue
+
+            selected_cav_processed = \
+                self.get_single_cav(selected_cav_base)
+
+            camera_data.append(selected_cav_processed['camera']['data'])
+            camera_intrinsic.append(
+                selected_cav_processed['camera']['intrinsic'])
+            camera2ego.append(
+                selected_cav_processed['camera']['extrinsic'])
+            transformation_matrix.append(
+                selected_cav_processed['transformation_matrix'])
+
+            if cav_id == ego_id:
+                gt_dynamic.append(
+                    selected_cav_processed['gt']['dynamic_bev'])
+                gt_static.append(
+                    selected_cav_processed['gt']['static_bev'])
+
+        # stack all agents together
+        camera_data = np.stack(camera_data)
+        camera_intrinsic = np.stack(camera_intrinsic)
+        camera2ego = np.stack(camera2ego)
+
+        gt_dynamic = np.stack(gt_dynamic)
+        gt_static = np.stack(gt_static)
+
+        # padding
+        transformation_matrix = np.stack(transformation_matrix)
+        padding_eye = np.tile(np.eye(4)[None], (self.max_cav - len(
+            transformation_matrix), 1, 1))
+        transformation_matrix = np.concatenate(
+            [transformation_matrix, padding_eye], axis=0)
+
+        processed_data_dict['ego'].update({
+            'transformation_matrix': transformation_matrix,
+            'pairwise_t_matrix': pairwise_t_matrix,
+            'camera_data': camera_data,
+            'camera_intrinsic': camera_intrinsic,
+            'camera_extrinsic': camera2ego,
+            'gt_dynamic': gt_dynamic,
+            'gt_static': gt_static})
+        return processed_data_dict
+
+    def return_processed_data_history(self, data_sample_list):
+        processed_data_dict_list = []
         for time_index, data_sample in data_sample_list.items():
             processed_data_dict = OrderedDict()
             processed_data_dict['ego'] = OrderedDict()
@@ -194,7 +201,7 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
                 'camera_extrinsic': camera2ego,
                 'gt_dynamic': gt_dynamic,
                 'gt_static': gt_static})
-            processed_data_dict_list[time_index] = processed_data_dict
+            processed_data_dict_list.append(processed_data_dict)
         return processed_data_dict_list
 
     @staticmethod
@@ -332,6 +339,7 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
         batch : dict
             Reformatted batch.
         """
+
         if not self.train:
             assert len(batch) == 1
 
@@ -411,7 +419,213 @@ class CamIntermediateFusionDataset(base_camera_dataset.BaseCameraDataset):
         })
 
         return output_dict
+#'=============================================时序数据拼接版============================================================'
+    # def collate_batch(self, batch):
+    #     output_dict_list = []
+    #
+    #     for j in range(len(batch[0])):
+    #         if not self.train:
+    #             assert len(batch) == 1
+    #
+    #         output_dict = {'ego': {}}
+    #
+    #         cam_rgb_all_batch = []
+    #         cam_to_ego_all_batch = []
+    #         cam_intrinsic_all_batch = []
+    #
+    #         gt_static_all_batch = []
+    #         gt_dynamic_all_batch = []
+    #
+    #         transformation_matrix_all_batch = []
+    #         pairwise_t_matrix_all_batch = []
+    #         # used to save each scenario's agent number
+    #         record_len = []
+    #
+    #         for i in range(len(batch)):
+    #             ego_dict = batch[i][j]['ego']
+    #
+    #             camera_data = ego_dict['camera_data']
+    #             camera_intrinsic = ego_dict['camera_intrinsic']
+    #             camera_extrinsic = ego_dict['camera_extrinsic']
+    #
+    #             assert camera_data.shape[0] == \
+    #                    camera_intrinsic.shape[0] == \
+    #                    camera_extrinsic.shape[0]
+    #
+    #             record_len.append(camera_data.shape[0])
+    #
+    #             cam_rgb_all_batch.append(camera_data)
+    #             cam_intrinsic_all_batch.append(camera_intrinsic)
+    #             cam_to_ego_all_batch.append(camera_extrinsic)
+    #
+    #             # ground truth
+    #             gt_dynamic_all_batch.append(ego_dict['gt_dynamic'])
+    #             gt_static_all_batch.append(ego_dict['gt_static'])
+    #
+    #             # transformation matrix
+    #             transformation_matrix_all_batch.append(
+    #                 ego_dict['transformation_matrix'])
+    #             # pairwise matrix
+    #             pairwise_t_matrix_all_batch.append(ego_dict['pairwise_t_matrix'])
+    #
+    #         # (B*L, 1, M, H, W, C)
+    #         cam_rgb_all_batch = torch.from_numpy(
+    #             np.concatenate(cam_rgb_all_batch, axis=0)).unsqueeze(1).float()
+    #         cam_intrinsic_all_batch = torch.from_numpy(
+    #             np.concatenate(cam_intrinsic_all_batch, axis=0)).unsqueeze(1).float()
+    #         cam_to_ego_all_batch = torch.from_numpy(
+    #             np.concatenate(cam_to_ego_all_batch, axis=0)).unsqueeze(1).float()
+    #         # (B,)
+    #         record_len = torch.from_numpy(np.array(record_len, dtype=int))
+    #
+    #         # (B, 1, H, W)
+    #         gt_static_all_batch = \
+    #             torch.from_numpy(np.stack(gt_static_all_batch)).long().unsqueeze(1)
+    #         gt_dynamic_all_batch = \
+    #             torch.from_numpy(np.stack(gt_dynamic_all_batch)).long().unsqueeze(1)
+    #
+    #         # (B,max_cav,4,4)
+    #         transformation_matrix_all_batch = \
+    #             torch.from_numpy(np.stack(transformation_matrix_all_batch)).unsqueeze(1).float()
+    #         pairwise_t_matrix_all_batch = \
+    #             torch.from_numpy(np.stack(pairwise_t_matrix_all_batch)).unsqueeze(1).float()
+    #
+    #         # convert numpy arrays to torch tensor
+    #         output_dict['ego'].update({
+    #             'inputs': cam_rgb_all_batch,
+    #             'extrinsic': cam_to_ego_all_batch,
+    #             'intrinsic': cam_intrinsic_all_batch,
+    #             'gt_static': gt_static_all_batch,
+    #             'gt_dynamic': gt_dynamic_all_batch,
+    #             'transformation_matrix': transformation_matrix_all_batch,
+    #             'pairwise_t_matrix': pairwise_t_matrix_all_batch,
+    #             'record_len': record_len
+    #         })
+    #         output_dict_list.append(output_dict)
+    #     input = []
+    #     extrinsic = []
+    #     intrinsic = []
+    #     gt_static = []
+    #     gt_dynamic = []
+    #     transformation_matrix = []
+    #     pairwise_t_matrix = []
+    #     record_len = []
+    #     output_dict_list_hist = {'ego': {}}
+    #     for i in range(len(output_dict_list)):
+    #         for id, features in output_dict_list[i].items():
+    #             input.append(features['inputs'])
+    #             extrinsic.append(features['extrinsic'])
+    #             intrinsic.append(features['intrinsic'])
+    #             gt_static.append(features['gt_static'])
+    #             gt_dynamic.append(features['gt_dynamic'])
+    #             pairwise_t_matrix.append(features['pairwise_t_matrix'])
+    #             transformation_matrix.append(features['transformation_matrix'])
+    #             record_len.append(features['record_len'])
+    #
+    #     input = torch.cat(input, dim=1)
+    #     extrinsic = torch.cat(extrinsic, dim=1)
+    #     intrinsic = torch.cat(intrinsic, dim=1)
+    #     gt_static = torch.cat(gt_static, dim=1)
+    #     gt_dynamic = torch.cat(gt_dynamic, dim=1)
+    #     pairwise_t_matrix = torch.cat(pairwise_t_matrix, dim=1)
+    #     transformation_matrix = torch.cat(transformation_matrix, dim=1)
+    #     record_len = record_len[0]
+    #     output_dict_list_hist['ego'].update({
+    #         'inputs': input,
+    #         'extrinsic': extrinsic,
+    #         'intrinsic': intrinsic,
+    #         'gt_static': gt_static,
+    #         'gt_dynamic': gt_dynamic,
+    #         'transformation_matrix': transformation_matrix,
+    #         'pairwise_t_matrix': pairwise_t_matrix,
+    #         'record_len': record_len
+    #     })
+    #     return output_dict_list_hist
 
+#'=================================================时序数据分开储存========================================================'
+    def collate_batch(self, batch):
+        output_dict_list = []
+
+        for j in range(len(batch[0])):
+            if not self.train:
+                assert len(batch) == 1
+
+            output_dict = {'ego': {}}
+
+            cam_rgb_all_batch = []
+            cam_to_ego_all_batch = []
+            cam_intrinsic_all_batch = []
+
+            gt_static_all_batch = []
+            gt_dynamic_all_batch = []
+
+            transformation_matrix_all_batch = []
+            pairwise_t_matrix_all_batch = []
+            # used to save each scenario's agent number
+            record_len = []
+
+            for i in range(len(batch)):
+                ego_dict = batch[i][j]['ego']
+
+                camera_data = ego_dict['camera_data']
+                camera_intrinsic = ego_dict['camera_intrinsic']
+                camera_extrinsic = ego_dict['camera_extrinsic']
+
+                assert camera_data.shape[0] == \
+                       camera_intrinsic.shape[0] == \
+                       camera_extrinsic.shape[0]
+
+                record_len.append(camera_data.shape[0])
+
+                cam_rgb_all_batch.append(camera_data)
+                cam_intrinsic_all_batch.append(camera_intrinsic)
+                cam_to_ego_all_batch.append(camera_extrinsic)
+
+                # ground truth
+                gt_dynamic_all_batch.append(ego_dict['gt_dynamic'])
+                gt_static_all_batch.append(ego_dict['gt_static'])
+
+                # transformation matrix
+                transformation_matrix_all_batch.append(
+                    ego_dict['transformation_matrix'])
+                # pairwise matrix
+                pairwise_t_matrix_all_batch.append(ego_dict['pairwise_t_matrix'])
+
+            # (B*L, 1, M, H, W, C)
+            cam_rgb_all_batch = torch.from_numpy(
+                np.concatenate(cam_rgb_all_batch, axis=0)).unsqueeze(1).float()
+            cam_intrinsic_all_batch = torch.from_numpy(
+                np.concatenate(cam_intrinsic_all_batch, axis=0)).unsqueeze(1).float()
+            cam_to_ego_all_batch = torch.from_numpy(
+                np.concatenate(cam_to_ego_all_batch, axis=0)).unsqueeze(1).float()
+            # (B,)
+            record_len = torch.from_numpy(np.array(record_len, dtype=int))
+
+            # (B, 1, H, W)
+            gt_static_all_batch = \
+                torch.from_numpy(np.stack(gt_static_all_batch)).long()
+            gt_dynamic_all_batch = \
+                torch.from_numpy(np.stack(gt_dynamic_all_batch)).long()
+
+            # (B,max_cav,4,4)
+            transformation_matrix_all_batch = \
+                torch.from_numpy(np.stack(transformation_matrix_all_batch)).float()
+            pairwise_t_matrix_all_batch = \
+                torch.from_numpy(np.stack(pairwise_t_matrix_all_batch)).float()
+
+            # convert numpy arrays to torch tensor
+            output_dict['ego'].update({
+                'inputs': cam_rgb_all_batch,
+                'extrinsic': cam_to_ego_all_batch,
+                'intrinsic': cam_intrinsic_all_batch,
+                'gt_static': gt_static_all_batch,
+                'gt_dynamic': gt_dynamic_all_batch,
+                'transformation_matrix': transformation_matrix_all_batch,
+                'pairwise_t_matrix': pairwise_t_matrix_all_batch,
+                'record_len': record_len
+            })
+            output_dict_list.append(output_dict)
+        return output_dict_list
     def post_process(self, batch_dict, output_dict):
         output_dict = self.post_processor.post_process(batch_dict,
                                                        output_dict)

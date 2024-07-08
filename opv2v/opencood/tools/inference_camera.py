@@ -63,11 +63,11 @@ def main():
             output_dict = \
                 opencood_dataset.post_process(batch_data['ego'],
                                               output_dict)
-            infrence_utils.camera_inference_visualization(output_dict,
-                                                          batch_data,
-                                                          saved_path,
-                                                          i,
-                                                          opt.model_type)
+            # infrence_utils.camera_inference_visualization(output_dict,
+            #                                               batch_data,
+            #                                               saved_path,
+            #                                               i,
+            #                                               opt.model_type)
 
             iou_dynamic, iou_static = cal_iou_training(batch_data,
                                                        output_dict)

@@ -102,6 +102,13 @@ def main():
     model.to(device)
     model_without_ddp = model
 
+#------------------------------------------------ 权重冻结------------------------------------------------------------
+
+    for name, param in model.named_parameters():
+        if not name.startswith('temporal_fusion'):
+            param.requires_grad = False
+        # print(name)
+# -------------------------------------------------------------------------------------------------------------------
     if opt.distributed:
         model = \
             torch.nn.parallel.DistributedDataParallel(model,
@@ -140,16 +147,17 @@ def main():
 
         pbar2 = tqdm.tqdm(total=len(train_loader), leave=True)
 
-        for i, batch_data in enumerate(train_loader):
+        for i, batch_data_list in enumerate(train_loader):
             # the model will be evaluation mode during validation
             model.train()
             model.zero_grad()
             optimizer.zero_grad()
 
-            batch_data = train_utils.to_device(batch_data, device)
-
+            batch_data_list = train_utils.to_device(batch_data_list, device)
+            batch_data = batch_data_list[0]
             if not opt.half:
-                ouput_dict = model(batch_data['ego'])
+                # ouput_dict = model(batch_data['ego'])
+                ouput_dict = model(batch_data_list)
                 # first argument is always your output dictionary,
                 # second argument is always your label dictionary.
                 final_loss = criterion(ouput_dict,
@@ -185,11 +193,12 @@ def main():
             lane_ave_iou = []
 
             with torch.no_grad():
-                for i, batch_data in enumerate(val_loader):
+                for i, batch_data_list in enumerate(val_loader):
                     model.eval()
 
-                    batch_data = train_utils.to_device(batch_data, device)
-                    output_dict = model(batch_data['ego'])
+                    batch_data_list = train_utils.to_device(batch_data_list, device)
+                    batch_data = batch_data_list[0]
+                    output_dict = model(batch_data_list)
 
                     final_loss = criterion(output_dict,
                                            batch_data['ego'])

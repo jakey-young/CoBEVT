@@ -5,7 +5,7 @@ validate_dir: '/home/why/workspace/Dataset/opv2v/validate'
 
 train_params:
   batch_size: &batch_size 1
-  epoches: &epoches 151
+  epoches: &epoches 30
   eval_freq: 5
   save_freq: 5
   max_cav: &max_cav 5
