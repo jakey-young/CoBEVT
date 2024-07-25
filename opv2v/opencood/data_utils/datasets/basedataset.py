@@ -351,7 +351,7 @@ class BaseDataset(Dataset):
         index_list = []
         scenario_index = 0
         timestamp_key = 0
-        for j in range(idx,idx-select_num-1,-1): # 选用过去?帧的数据
+        for j in range(idx, idx-select_num-2,-1): # 选用过去?帧的数据
             if j == idx:
                 scenario_database, scenario_index, timestamp_key = self.retrieve_current_data(j, cur_ego_pose_flag)
             else:

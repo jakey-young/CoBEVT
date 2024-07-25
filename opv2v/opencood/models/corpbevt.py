@@ -147,6 +147,36 @@ import math
 #         return output_dict
 
 #===================================================魔改========================================================
+class SwinLSTMCell(nn.Module):
+
+    def __init__(self, dim, input_resolution, num_heads, window_size, depth,
+                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
+                 drop_path=0., norm_layer=nn.LayerNorm):
+        super(SwinLSTMCell, self).__init__()
+
+
+
+    def forward(self, xt, hidden_states):
+        if hidden_states is None:
+            B, L, C = xt.shape
+            hx = torch.zeros(B, L, C).to(xt.device)
+            cx = torch.zeros(B, L, C).to(xt.device)
+
+        else:
+            hx, cx = hidden_states
+
+        Ft = self.Swin(xt, hx)
+
+        gate = torch.sigmoid(Ft)
+        cell = torch.tanh(Ft)
+
+        cy = gate * (cx + cell)
+        hy = gate * torch.tanh(cy)
+        hx = hy
+        cx = cy
+
+        return hx, (hx, cx)
+
 class SpatialAttention_mtf(nn.Module):
     def __init__(self, kernel_size=7):
         super(SpatialAttention_mtf, self).__init__()
@@ -299,9 +329,9 @@ class TemporalFusion_lstm(nn.Module):
         self.sync_lstm = SyncLSTM(channel_size=128, height=32, width=32)
 
     def forward(self, origin_input):
-        x_cav = origin_input[0][1:,:]
+        x_cav = origin_input[0][1:,:] # 当前时刻其他车数据
         x_curr_test = origin_input[0][0:1,:]
-        x_curr = origin_input[0][0:1,:]
+        x_curr = origin_input[0][0:1,:] # 当前时刻自车数据
         x_prev = origin_input[1]
 
         x_prev_cat = self.mtf_attention(x_curr, x_prev)

@@ -52,13 +52,14 @@ def main():
     static_ave_iou = []
     lane_ave_iou = []
 
-    for i, batch_data in enumerate(data_loader):
+    for i, batch_data_list in enumerate(data_loader):
         print(i)
         with torch.no_grad():
             torch.cuda.synchronize()
 
-            batch_data = train_utils.to_device(batch_data, device)
-            output_dict = model(batch_data['ego'])
+            batch_data_list = train_utils.to_device(batch_data_list, device)
+            batch_data = batch_data_list[0]
+            output_dict = model(batch_data_list)
             # visualization purpose
             output_dict = \
                 opencood_dataset.post_process(batch_data['ego'],
