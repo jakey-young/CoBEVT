@@ -1,5 +1,5 @@
 import numpy as np
-
+import torch
 from opencood.utils import common_utils
 
 
@@ -83,3 +83,62 @@ def global_scaling(gt_boxes, points, scale_range):
     gt_boxes[:, :6] *= noise_scale
 
     return gt_boxes, points
+
+
+def signal_to_noise(bev_embedding: torch.Tensor, snr: float = 0.5):
+    """
+    Add signal to noise to bev embedding.
+    Args:
+        bev_embedding: (B, C, H, W) - Batch of BEV embeddings
+        snr: Desired signal-to-noise ratio
+    Returns:
+        noisy_bev: (B, C, H, W) - Noisy BEV embeddings
+    """
+    # Calculate signal power
+    signal_power = torch.mean(bev_embedding ** 2, dim=(1, 2, 3), keepdim=True).squeeze()
+
+    # Calculate noise power
+    noise_power = signal_power / snr
+
+    # Generate noise with desired power
+    noise = torch.normal(mean=0, std=torch.sqrt(noise_power).view(-1, 1, 1, 1).repeat(1, *bev_embedding.shape[1:])).to(
+        device=bev_embedding.device)
+
+    # Add noise and clip
+    noisy_bev = bev_embedding + noise
+    noisy_bev = torch.clamp(noisy_bev, bev_embedding.min(), bev_embedding.max())  # Assuming 0-255 range
+
+    return noisy_bev
+
+
+def zero_out(bev_embedding: torch.Tensor, probability: float = 0.1):
+    """
+    Zero out a random portion of the BEV embedding.
+    Args:
+        bev_embedding: (B, C, H, W) - Batch of BEV embeddings
+        probability: Probability of zeroing out a pixel
+    Returns:
+        noisy_bev: (B, C, H, W) - Noisy BEV embeddings
+    """
+    # Generate random mask
+    mask = torch.rand(bev_embedding.shape) < probability
+    mask = mask.to(bev_embedding.device)
+
+    # Zero out masked pixels
+    noisy_bev = bev_embedding * ~mask
+
+    return noisy_bev
+
+
+def full_zero_out(bev_embedding: torch.Tensor):
+    """
+    Zero out the entire BEV embedding.
+    Args:
+        bev_embedding: (B, C, H, W) - Batch of BEV embeddings
+    Returns:
+        noisy_bev: (B, C, H, W) - Noisy BEV embeddings
+    """
+
+    noisy_bev = torch.zeros_like(bev_embedding)
+
+    return noisy_bev

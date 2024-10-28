@@ -2,7 +2,48 @@ import torch
 import torch.nn as nn
 
 from einops import rearrange
+import torch.nn.functional as F
 
+class WindowSelectionLoss(nn.Module):
+    def __init__(self, sim_type='cosine'):
+        super().__init__()
+        self.sim_type = sim_type
+
+    def compute_dissimilarity(self, x1, x2):
+        if self.sim_type == 'cosine':
+            x1_flat = x1.view(x1.size(0), -1)
+            x2_flat = x2.view(x2.size(0), -1)
+            return 1 - F.cosine_similarity(x1_flat, x2_flat)
+        elif self.sim_type == 'l2':
+            return torch.norm(x1 - x2, dim=(1, 2, 3))
+
+    def forward(self, features, window_logits, selected_window):
+        B, T, C, H, W = features.shape
+
+        # 计算完整序列的差异（真值）
+        full_seq_dissim = 0
+        for t in range(1, T):
+            full_seq_dissim += self.compute_dissimilarity(features[:, t], features[:, t - 1])
+        full_seq_dissim /= (T - 1)
+
+        # 计算选定窗口的差异
+        window_dissim = 0
+        for b in range(B):
+            window_size = int(selected_window[b].item())
+            for t in range(T - window_size, T):
+                window_dissim += self.compute_dissimilarity(features[b, t], features[b, t - 1])
+            window_dissim /= window_size
+
+        # 计算差异的逆相关性
+        divergence = 1 / (1 + torch.exp(-(full_seq_dissim - window_dissim)))
+
+        # 窗口选择的交叉熵损失
+        ce_loss = F.cross_entropy(window_logits, (selected_window - 1).long())
+
+        # 总损失
+        loss = -torch.log(divergence + 1e-6) + ce_loss
+
+        return loss.mean()
 
 class VanillaSegLoss(nn.Module):
     def __init__(self, args):
@@ -23,9 +64,11 @@ class VanillaSegLoss(nn.Module):
             nn.CrossEntropyLoss(
                 weight=torch.Tensor([1., self.d_weights]).cuda())
 
+        self.window_loss = WindowSelectionLoss()
+
         self.loss_dict = {}
 
-    def forward(self, output_dict, gt_dict):
+    def forward(self, output_dict, gt_dict, temp_features, selected_window, window_logits):
         """
         Perform loss function on the prediction.
 
@@ -41,6 +84,8 @@ class VanillaSegLoss(nn.Module):
         -------
         Loss dictionary.
         """
+        # 自适应窗口损失
+        adp_time_window_loss = self.window_loss(temp_features, selected_window, window_logits)
 
         static_pred = output_dict['static_seg']
         dynamic_pred = output_dict['dynamic_seg']
