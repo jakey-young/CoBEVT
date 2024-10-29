@@ -156,8 +156,8 @@ def main():
             batch_data_list = train_utils.to_device(batch_data_list, device)
             batch_data = batch_data_list[0]
             if not opt.half:
-                # ouput_dict = model(batch_data['ego'])
-                ouput_dict, temp_features, selected_window, window_logits = model(batch_data_list)
+                ouput_dict = model(batch_data['ego'])
+                # ouput_dict, temp_features, selected_window, window_logits = model(batch_data_list)
                 # first argument is always your output dictionary,
                 # second argument is always your label dictionary.
                 final_loss = criterion(ouput_dict,
