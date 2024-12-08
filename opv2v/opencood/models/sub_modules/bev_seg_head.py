@@ -54,7 +54,7 @@ class BevSegHead(nn.Module):
             static_map = self.static_head(x)
             static_map = rearrange(static_map, '(b l) c h w -> b l c h w',
                                    b=b, l=l)
-
+        # dynamic_map = rearrange(apply_refinement(dynamic_map[:,0]), '(b l) c h w -> b l c h w', b=b, l=l)
         output_dict = {'static_seg': static_map,
                        'dynamic_seg': dynamic_map}
 

@@ -9,6 +9,7 @@ import opencood.hypes_yaml.yaml_utils as yaml_utils
 from opencood.tools import train_utils, infrence_utils
 from opencood.data_utils.datasets import build_dataset
 from opencood.utils.seg_utils import cal_iou_training
+from opencood.tools.hist_list import FixedSizeList
 
 
 def test_parser():
@@ -29,7 +30,7 @@ def main():
     opencood_dataset = build_dataset(hypes, visualize=True, train=False)
     data_loader = DataLoader(opencood_dataset,
                              batch_size=1,
-                             num_workers=10,
+                             num_workers=24,
                              collate_fn=opencood_dataset.collate_batch,
                              shuffle=False,
                              pin_memory=False,
@@ -51,24 +52,27 @@ def main():
     dynamic_ave_iou = []
     static_ave_iou = []
     lane_ave_iou = []
+    hist_bev_list = FixedSizeList()
+    hist_bev_list = hist_bev_list.items
 
-    for i, batch_data_list in enumerate(data_loader):
+    for i, batch_data in enumerate(data_loader):
         print(i)
         with torch.no_grad():
             torch.cuda.synchronize()
 
-            batch_data_list = train_utils.to_device(batch_data_list, device)
-            batch_data = batch_data_list[0]
-            output_dict = model(batch_data_list)
+            batch_data = train_utils.to_device(batch_data, device)
+            # batch_data = batch_data_list[0]
+            output_dict, hist_bev_list = model(batch_data['ego'], hist_bev_list, i)
+            # hist_bev_list.append(hist_bev)
             # visualization purpose
             output_dict = \
                 opencood_dataset.post_process(batch_data['ego'],
                                               output_dict)
-            # infrence_utils.camera_inference_visualization(output_dict,
-            #                                               batch_data,
-            #                                               saved_path,
-            #                                               i,
-            #                                               opt.model_type)
+            infrence_utils.camera_inference_visualization(output_dict,
+                                                          batch_data,
+                                                          saved_path,
+                                                          i,
+                                                          opt.model_type)
 
             iou_dynamic, iou_static = cal_iou_training(batch_data,
                                                        output_dict)

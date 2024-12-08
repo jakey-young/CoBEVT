@@ -104,9 +104,9 @@ def main():
 
 #------------------------------------------------ 权重冻结------------------------------------------------------------
 
-    for name, param in model.named_parameters():
-        if not name.startswith('temporal_fusion'):
-            param.requires_grad = False
+    # for name, param in model.named_parameters():
+    #     if not name.startswith('temporal_fusion'):
+    #         param.requires_grad = False
         # print(name)
 # -------------------------------------------------------------------------------------------------------------------
     if opt.distributed:
@@ -146,7 +146,7 @@ def main():
             sampler_train.set_epoch(epoch)
 
         pbar2 = tqdm.tqdm(total=len(train_loader), leave=True)
-
+        hist_bev_list = []
         for i, batch_data_list in enumerate(train_loader):
             # the model will be evaluation mode during validation
             model.train()
@@ -154,14 +154,14 @@ def main():
             optimizer.zero_grad()
 
             batch_data_list = train_utils.to_device(batch_data_list, device)
-            batch_data = batch_data_list[0]
+            # batch_data = batch_data_list[0]
             if not opt.half:
-                ouput_dict = model(batch_data['ego'])
+                ouput_dict, hist_bev_list, contrast_loss = model(batch_data_list['ego'], hist_bev_list)
                 # ouput_dict, temp_features, selected_window, window_logits = model(batch_data_list)
                 # first argument is always your output dictionary,
                 # second argument is always your label dictionary.
                 final_loss = criterion(ouput_dict,
-                                       batch_data['ego'], temp_features, selected_window, window_logits)
+                                       batch_data_list['ego'],contrast_loss)
             else:
                 with torch.cuda.amp.autocast():
                     ouput_dict = model(batch_data['ego'])

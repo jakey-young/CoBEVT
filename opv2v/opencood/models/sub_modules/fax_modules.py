@@ -1095,6 +1095,7 @@ class FAXModule(nn.Module):
         self.self_attn = Attention(dim[-1], **config['self_attn'])
 
     def forward(self, batch):
+        scale_x = []
         b, l, n, _, _, _ = batch['inputs'].shape
 
         I_inv = \
@@ -1111,10 +1112,11 @@ class FAXModule(nn.Module):
 
             x = cross_view(i, x, self.bev_embedding, feature, I_inv, E_inv)
             x = layer(x)
+            scale_x.append(x)
             if i < len(features)-1: #Afterwards, Q0 is downsampled and refined by two standard residual blocks to obtain Q1 ∈ R64×64×128. The BEV query will perform the same operations with I1 and I2 sequentially toobtain the final BEV feature Q2 in R32×32×128
                 down_sample_block = self.downsample_layers[i]
                 x = down_sample_block(x)
 
         x = self.self_attn(x)
         x = rearrange(x, '(b l) ... -> b l ...', b=b, l=l)
-        return x
+        return x, scale_x

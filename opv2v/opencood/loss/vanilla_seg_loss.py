@@ -3,11 +3,13 @@ import torch.nn as nn
 
 from einops import rearrange
 import torch.nn.functional as F
+from opencood.models.corpbevt import CorpBEVT
 
 class WindowSelectionLoss(nn.Module):
     def __init__(self, sim_type='cosine'):
         super().__init__()
         self.sim_type = sim_type
+
 
     def compute_dissimilarity(self, x1, x2):
         if self.sim_type == 'cosine':
@@ -67,8 +69,9 @@ class VanillaSegLoss(nn.Module):
         self.window_loss = WindowSelectionLoss()
 
         self.loss_dict = {}
+        # self.cobevt = CorpBEVT()
 
-    def forward(self, output_dict, gt_dict, temp_features, selected_window, window_logits):
+    def forward(self, output_dict, gt_dict):
         """
         Perform loss function on the prediction.
 
@@ -85,7 +88,7 @@ class VanillaSegLoss(nn.Module):
         Loss dictionary.
         """
         # 自适应窗口损失
-        adp_time_window_loss = self.window_loss(temp_features, selected_window, window_logits)
+        # adp_time_window_loss = self.window_loss(temp_features, selected_window, window_logits)
 
         static_pred = output_dict['static_seg']
         dynamic_pred = output_dict['dynamic_seg']

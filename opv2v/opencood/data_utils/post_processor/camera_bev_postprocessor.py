@@ -8,7 +8,7 @@ import torch.nn as nn
 
 from opencood.data_utils.post_processor.base_postprocessor \
     import BasePostprocessor
-
+from opencood.models.sub_modules.after_process import optimize_vehicle_segmentation
 
 class CameraBevPostprocessor(BasePostprocessor):
     """
@@ -77,7 +77,8 @@ class CameraBevPostprocessor(BasePostprocessor):
 
         static_prob, static_map = self.softmax_argmax(static_seg)
         dynamic_prob, dynamic_map = self.softmax_argmax(dynamic_seg)
-
+        # for _ in range(3):
+        dynamic_map = optimize_vehicle_segmentation(dynamic_map)
         output_dict.update({
             'static_prob': static_prob,
             'static_map': static_map,

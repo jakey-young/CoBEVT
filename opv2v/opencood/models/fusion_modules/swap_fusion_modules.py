@@ -7,7 +7,9 @@ from torch import nn, einsum
 from einops.layers.torch import Rearrange, Reduce
 
 from opencood.models.base_transformer import FeedForward, PreNormResidual
-
+from opencood.models.sub_modules.enhanced_fusebevt_v7 import RefinedFusionAttention
+from opencood.models.sub_modules.enhanced_fusebevt_v5 import ImprovedSwapFusionBlock, ContrastiveFeatureSeparator
+from opencood.tools.heat_map import visualize_attention_weights
 
 # swap attention -> max_vit
 class Attention(nn.Module):
@@ -58,6 +60,9 @@ class Attention(nn.Module):
             (2 * self.window_size[2] - 1),
             self.heads)  # 2*Wd-1 * 2*Wh-1 * 2*Ww-1, nH
 
+        self.density_gate = nn.Sequential(nn.Linear(dim,1),
+                                          nn.Sigmoid())
+
         # get pair-wise relative position index for
         # each token inside the window
         coords_d = torch.arange(self.window_size[0])
@@ -91,6 +96,9 @@ class Attention(nn.Module):
 
         # flatten
         x = rearrange(x, 'b l x y w1 w2 d -> (b x y) (l w1 w2) d')
+        # ------------------------------------------------------------------
+        # density_score =self.density_gate(x)
+        # ------------------------------------------------------------------
         # project for queries, keys, values
         q, k, v = self.to_qkv(x).chunk(3, dim=-1)
         # split heads
@@ -116,6 +124,11 @@ class Attention(nn.Module):
 
         # attention
         attn = self.attend(sim)
+
+        #------------------------------------------------------------------
+        # density_attn = density_score.sigmoid() * 2.0
+        # attn = attn * rearrange(density_attn, 'b n 1 -> b 1 n 1')
+        # ------------------------------------------------------------------
         # aggregate
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
         # merge heads
@@ -162,16 +175,37 @@ class SwapFusionBlockMask(nn.Module):
                                         FeedForward(input_dim, mlp_dim,
                                                     drop_out))
 
+        self.refined_fusion = RefinedFusionAttention(input_dim)
+
+        # Layer Norms
+        self.norm = nn.LayerNorm(input_dim)
+
+        # FFNs
+        self.ffn = FeedForward(input_dim, mlp_dim, drop_out)
+        self.fuse_enhance = ImprovedSwapFusionBlock(input_dim=input_dim,window_size=window_size)
+        self.feature_separator = ContrastiveFeatureSeparator(dim=input_dim,window_size=window_size)
+
+
     def forward(self, x, mask):
         # x: b l c h w
         # mask: b h w 1 l
         # window attention -> grid attention
+        B, M, C, H, W = x.shape
         mask_swap = mask
 
         # mask b h w 1 l -> b x y w1 w2 1 L
         mask_swap = rearrange(mask_swap,
                               'b (x w1) (y w2) e l -> b x y w1 w2 e l',
                               w1=self.window_size, w2=self.window_size)
+
+# ----------------------------enhanced_local_v5-------------------------------
+#         x_local = rearrange(x, 'b m c h w -> (b m) c h w')
+#         x_local = self.fuse_enhance.enhance_local_features(x_local)
+#         x_local = rearrange(x_local, '(b m) c h w -> b m c h w', b=B)
+#         x = self.feature_separator(x_local)
+        # current_contrast_loss = self.feature_separator.contrast_loss
+# -------------------------------------------------------------------------
+
         x = rearrange(x, 'b m d (x w1) (y w2) -> b m x y w1 w2 d',
                       w1=self.window_size, w2=self.window_size)
         x = self.window_attention(x, mask=mask_swap)
@@ -183,6 +217,22 @@ class SwapFusionBlockMask(nn.Module):
         mask_swap = rearrange(mask_swap,
                               'b (w1 x) (w2 y) e l -> b x y w1 w2 e l',
                               w1=self.window_size, w2=self.window_size)
+
+# ----------------------------enhanced_global_v5-------------------------------
+#         x_global = rearrange(x, 'b m c h w -> (b m) c h w')
+#         x_global = self.fuse_enhance.enhance_global_features(x_global)
+#         x = rearrange(x_global, '(b m) c h w -> b m c h w', b=B)
+# --------------------------------------------------------------------------
+
+
+# ------------------------------enhanced_fuse_v6--------------------------------
+        x_r = x.clone()
+        x_r = self.refined_fusion(self.norm(x_r.permute(0,1,3,4,2))).permute(0,1,4,2,3)
+        x_r = self.ffn(x_r.permute(0,1,3,4,2)).permute(0,1,4,2,3)
+        x = x + x_r
+# ------------------------------------------------------------------------------
+
+
         x = rearrange(x, 'b m d (w1 x) (w2 y) -> b m x y w1 w2 d',
                       w1=self.window_size, w2=self.window_size)
         x = self.grid_attention(x, mask=mask_swap)
@@ -281,15 +331,17 @@ class SwapFusionEncoder(nn.Module):
         )
 
     def forward(self, x, mask=None):
+        total_current_loss = 0.0
         for stage in self.layers:
             x = stage(x, mask=mask)
+            # total_current_loss += current_contrast_loss
         return self.mlp_head(x)
 
 
 if __name__ == "__main__":
     import os
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     args = {'input_dim': 512,
             'mlp_dim': 512,
             'agent_size': 4,
